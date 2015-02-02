@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/rpc"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -288,4 +289,65 @@ func TestProvider_Setup(t *testing.T) {
 	if !p.SessionAuthenticated() {
 		t.Fatalf("bad: %v", p.SessionAuthenticated())
 	}
+}
+
+func TestProvider_Connect(t *testing.T) {
+}
+
+func TestProvider_Disconnect(t *testing.T) {
+}
+
+func testConn(t *testing.T) (net.Conn, net.Conn) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+
+	var serverConn net.Conn
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		defer l.Close()
+		var err error
+		serverConn, err = l.Accept()
+		if err != nil {
+			t.Fatalf("err: %s", err)
+		}
+	}()
+
+	clientConn, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatalf("err: %s", err)
+	}
+	<-doneCh
+
+	return clientConn, serverConn
+}
+
+func TestBridgeConn(t *testing.T) {
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	a, b := testConn(t)
+	go func() {
+		defer wg.Done()
+		a.Write([]byte("ping"))
+		out := make([]byte, 4)
+		a.Read(out)
+		if string(out) != "pong" {
+			t.Fatalf("bad: %s", out)
+		}
+		a.Close()
+	}()
+	go func() {
+		defer wg.Done()
+		out := make([]byte, 4)
+		b.Read(out)
+		if string(out) != "ping" {
+			t.Fatalf("bad: %s", out)
+		}
+		b.Write([]byte("pong"))
+		b.Close()
+	}()
+	BridgeConn(a, b)
+	wg.Wait()
 }

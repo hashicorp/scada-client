@@ -426,17 +426,17 @@ func (pe *providerEndpoint) Disconnect(args *DisconnectRequest, resp *Disconnect
 // BridgeConn is used to bridge two connections together
 // and copy data bidirectionally
 func BridgeConn(a, b net.Conn) {
-	defer a.Close()
-	defer b.Close()
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 	go func() {
-		wg.Done()
+		defer wg.Done()
 		io.Copy(a, b)
+		a.Close()
 	}()
 	go func() {
-		wg.Done()
+		defer wg.Done()
 		io.Copy(b, a)
+		b.Close()
 	}()
 	wg.Wait()
 }
