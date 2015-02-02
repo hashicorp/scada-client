@@ -228,12 +228,12 @@ func (p *Provider) run() {
 }
 
 // handleSession is used to handle an established session
-func (p *Provider) handleSession(client *Client, doneCh chan struct{}) {
+func (p *Provider) handleSession(list net.Listener, doneCh chan struct{}) {
 	defer close(doneCh)
-	defer client.Close()
+	defer list.Close()
 	// Accept new connections
 	for !p.IsShutdown() {
-		conn, err := client.Accept()
+		conn, err := list.Accept()
 		if err != nil {
 			p.logger.Printf("[ERR] scada-client: failed to accept connection: %v", err)
 			return

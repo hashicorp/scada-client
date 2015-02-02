@@ -110,3 +110,8 @@ func (c *Client) Accept() (net.Conn, error) {
 func (c *Client) Open() (net.Conn, error) {
 	return c.client.Open()
 }
+
+// Addr is so that client can act like a net.Listener
+func (c *Client) Addr() net.Addr {
+	return c.client.LocalAddr()
+}
