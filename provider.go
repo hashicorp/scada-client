@@ -79,6 +79,10 @@ type Provider struct {
 	backoff     time.Duration // set when the server provides a longer backoff
 	backoffLock sync.Mutex
 
+	sessionID   string
+	sessionAuth bool
+	sessionLock sync.RWMutex
+
 	shutdown     bool
 	shutdownCh   chan struct{}
 	shutdownLock sync.Mutex
@@ -308,7 +312,26 @@ func (p *Provider) clientSetup() (*Client, error) {
 	p.client = client
 	p.clientLock.Unlock()
 
+	p.sessionLock.Lock()
+	p.sessionID = resp.SessionID
+	p.sessionAuth = resp.Authenticated
+	p.sessionLock.Unlock()
+
 	return client, nil
+}
+
+// SessionID provides the current session ID
+func (p *Provider) SessionID() string {
+	p.sessionLock.RLock()
+	defer p.sessionLock.RUnlock()
+	return p.sessionID
+}
+
+// SessionAuth checks if the current session is authenticated
+func (p *Provider) SessionAuthenticated() bool {
+	p.sessionLock.RLock()
+	defer p.sessionLock.RUnlock()
+	return p.sessionAuth
 }
 
 // handshake does the initial handshake

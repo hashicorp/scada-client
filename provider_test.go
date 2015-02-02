@@ -1,8 +1,16 @@
 package client
 
 import (
+	"crypto/tls"
+	"fmt"
+	"net"
+	"net/rpc"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/hashicorp/go-msgpack/codec"
+	"github.com/hashicorp/yamux"
 )
 
 func testProviderConfig() *ProviderConfig {
@@ -169,5 +177,115 @@ func TestProvider_backoff(t *testing.T) {
 
 	if b := p.backoffDuration(); b != 0 {
 		t.Fatalf("bad: %v", b)
+	}
+}
+
+func testTLSListener(t *testing.T) (string, net.Listener) {
+	list, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", list.Addr().(*net.TCPAddr).Port)
+
+	// Load the certificates
+	cert, err := tls.LoadX509KeyPair("./test/cert.pem", "./test/key.pem")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Create the tls config
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}
+
+	// TLS listener
+	tlsList := tls.NewListener(list, tlsConfig)
+	return addr, tlsList
+}
+
+type TestHandshake struct {
+	t      *testing.T
+	expect *HandshakeRequest
+}
+
+func (t *TestHandshake) Handshake(arg *HandshakeRequest, resp *HandshakeResponse) error {
+	if !reflect.DeepEqual(arg, t.expect) {
+		t.t.Fatalf("bad: %#v %#v", *arg, *t.expect)
+	}
+	resp.Authenticated = true
+	resp.SessionID = "foobarbaz"
+	return nil
+}
+
+func testHandshake(t *testing.T, list net.Listener, expect *HandshakeRequest) {
+	client, err := list.Accept()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer client.Close()
+
+	preamble := make([]byte, len(clientPreamble))
+	n, err := client.Read(preamble)
+	if err != nil || n != len(preamble) {
+		t.Fatalf("err: %v", err)
+	}
+
+	server, _ := yamux.Server(client, yamux.DefaultConfig())
+	conn, err := server.Accept()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer conn.Close()
+	rpcCodec := codec.GoRpc.ServerCodec(conn, &codec.MsgpackHandle{})
+
+	rpcSrv := rpc.NewServer()
+	rpcSrv.RegisterName("Session", &TestHandshake{t, expect})
+
+	err = rpcSrv.ServeRequest(rpcCodec)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+}
+
+func TestProvider_Setup(t *testing.T) {
+	addr, list := testTLSListener(t)
+	defer list.Close()
+
+	config := testProviderConfig()
+	config.Endpoint = addr
+	config.TLSConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	p, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer p.Shutdown()
+
+	exp := &HandshakeRequest{
+		Service:        "test",
+		ServiceVersion: "v1.0",
+		Capabilities:   nil,
+		Meta:           nil,
+		ResourceType:   "test",
+		ResourceGroup:  "hashicorp/test",
+		Token:          "abcdefg",
+	}
+	testHandshake(t, list, exp)
+
+	start := time.Now()
+	for time.Now().Sub(start) < time.Second {
+		if p.SessionID() != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if p.SessionID() != "foobarbaz" {
+		t.Fatalf("bad: %v", p.SessionID())
+	}
+	if !p.SessionAuthenticated() {
+		t.Fatalf("bad: %v", p.SessionAuthenticated())
 	}
 }
