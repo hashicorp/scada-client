@@ -166,8 +166,8 @@ func (p *Provider) IsShutdown() bool {
 	}
 }
 
-// wait is used to delay dialing on an error
-func (p *Provider) wait() {
+// backoffDuration is used to compute the next backoff duration
+func (p *Provider) backoffDuration() time.Duration {
 	// Use the default backoff
 	backoff := DefaultBackoff
 
@@ -180,6 +180,14 @@ func (p *Provider) wait() {
 		backoff = 0
 	}
 	p.backoffLock.Unlock()
+
+	return backoff
+}
+
+// wait is used to delay dialing on an error
+func (p *Provider) wait() {
+	// Compute the backoff time
+	backoff := p.backoffDuration()
 
 	// Setup a wait timer
 	var wait <-chan time.Time
