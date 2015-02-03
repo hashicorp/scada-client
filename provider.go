@@ -409,6 +409,9 @@ func (pe *providerEndpoint) Connect(args *ConnectRequest, resp *ConnectResponse)
 // Disconnect is invoked by the broker to ask us to backoff
 func (pe *providerEndpoint) Disconnect(args *DisconnectRequest, resp *DisconnectResponse) error {
 	defer metrics.IncrCounter([]string{"scada", "disconnect"}, 1)
+	if args.Reason == "" {
+		args.Reason = "<no reason provided>"
+	}
 	pe.p.logger.Printf("[INFO] scada-client: disconnect requested (retry: %v, backoff: %v): %v",
 		!args.NoRetry, args.Backoff, args.Reason)
 
