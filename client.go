@@ -4,11 +4,10 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"net/rpc"
 	"sync"
 	"time"
 
-	"github.com/hashicorp/go-msgpack/codec"
+	"github.com/hashicorp/net-rpc-msgpackrpc"
 	"github.com/hashicorp/yamux"
 )
 
@@ -16,11 +15,6 @@ const (
 	// clientPreamble is the preamble to send before upgrading
 	// the connection into a SCADA version 1 connection.
 	clientPreamble = "SCADA 1\n"
-)
-
-var (
-	// msgpackHandle is a shared handle for encoding/decoding of RPC messages
-	msgpackHandle = &codec.MsgpackHandle{}
 )
 
 // Client is a SCADA compatible client. This is a bare bones client that
@@ -96,9 +90,8 @@ func (c *Client) RPC(method string, args interface{}, resp interface{}) error {
 	defer stream.Close()
 
 	// Create the RPC client
-	cc := codec.GoRpc.ClientCodec(stream, msgpackHandle)
-	client := rpc.NewClientWithCodec(cc)
-	return client.Call(method, args, resp)
+	cc := msgpackrpc.NewCodec(true, true, stream)
+	return msgpackrpc.CallWithCodec(cc, method, args, resp)
 }
 
 // Accept is used to accept an incoming connection
