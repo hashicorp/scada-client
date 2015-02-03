@@ -3,14 +3,14 @@ package client
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/rpc"
 	"reflect"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/hashicorp/go-msgpack/codec"
+	"github.com/hashicorp/net-rpc-msgpackrpc"
 	"github.com/hashicorp/yamux"
 )
 
@@ -21,7 +21,9 @@ func testProviderConfig() *ProviderConfig {
 			Service:        "test",
 			ServiceVersion: "v1.0",
 			ResourceType:   "test",
+			Capabilities:   make(map[string]int),
 		},
+		Handlers:      make(map[string]CapabilityProvider),
 		ResourceGroup: "hashicorp/test",
 		Token:         "abcdefg",
 	}
@@ -237,7 +239,7 @@ func testHandshake(t *testing.T, list net.Listener, expect *HandshakeRequest) {
 		t.Fatalf("err: %v", err)
 	}
 	defer conn.Close()
-	rpcCodec := codec.GoRpc.ServerCodec(conn, &codec.MsgpackHandle{})
+	rpcCodec := msgpackrpc.NewCodec(true, true, conn)
 
 	rpcSrv := rpc.NewServer()
 	rpcSrv.RegisterName("Session", &TestHandshake{t, expect})
@@ -267,7 +269,7 @@ func TestProvider_Setup(t *testing.T) {
 	exp := &HandshakeRequest{
 		Service:        "test",
 		ServiceVersion: "v1.0",
-		Capabilities:   nil,
+		Capabilities:   make(map[string]int),
 		Meta:           nil,
 		ResourceType:   "test",
 		ResourceGroup:  "hashicorp/test",
@@ -291,7 +293,72 @@ func TestProvider_Setup(t *testing.T) {
 	}
 }
 
+func fooCapability(t *testing.T) CapabilityProvider {
+	return func(capa string, meta map[string]string, conn io.ReadWriteCloser) error {
+		if capa != "foo" {
+			t.Fatalf("bad: %s", capa)
+		}
+		if len(meta) != 1 || meta["zip"] != "zap" {
+			t.Fatalf("bad: %s", meta)
+		}
+		_, err := conn.Write([]byte("foobarbaz"))
+		if err != nil {
+			return err
+		}
+		if err := conn.Close(); err != nil {
+			return err
+		}
+		return nil
+	}
+}
+
 func TestProvider_Connect(t *testing.T) {
+	config := testProviderConfig()
+	config.Service.Capabilities["foo"] = 1
+	config.Handlers["foo"] = fooCapability(t)
+	p, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer p.Shutdown()
+
+	// Setup RPC client
+	a, b := testConn(t)
+	client, _ := yamux.Client(a, yamux.DefaultConfig())
+	server, _ := yamux.Server(b, yamux.DefaultConfig())
+	go p.handleSession(client, make(chan struct{}))
+
+	stream, _ := server.Open()
+	cc := msgpackrpc.NewCodec(false, false, stream)
+
+	// Make the connect rpc
+	args := &ConnectRequest{
+		Capability: "foo",
+		Meta: map[string]string{
+			"zip": "zap",
+		},
+	}
+	resp := &ConnectResponse{}
+	err = msgpackrpc.CallWithCodec(cc, "Client.Connect", args, resp)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// Should be successful!
+	if !resp.Success {
+		t.Fatalf("bad")
+	}
+
+	// At this point, we should be connected
+	out := make([]byte, 9)
+	n, err := stream.Read(out)
+	if err != nil {
+		t.Fatalf("err: %v %d", err, n)
+	}
+
+	if string(out) != "foobarbaz" {
+		t.Fatalf("bad: %s", out)
+	}
 }
 
 func TestProvider_Disconnect(t *testing.T) {
@@ -322,32 +389,4 @@ func testConn(t *testing.T) (net.Conn, net.Conn) {
 	<-doneCh
 
 	return clientConn, serverConn
-}
-
-func TestBridgeConn(t *testing.T) {
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-	a, b := testConn(t)
-	go func() {
-		defer wg.Done()
-		a.Write([]byte("ping"))
-		out := make([]byte, 4)
-		a.Read(out)
-		if string(out) != "pong" {
-			t.Fatalf("bad: %s", out)
-		}
-		a.Close()
-	}()
-	go func() {
-		defer wg.Done()
-		out := make([]byte, 4)
-		b.Read(out)
-		if string(out) != "ping" {
-			t.Fatalf("bad: %s", out)
-		}
-		b.Write([]byte("pong"))
-		b.Close()
-	}()
-	BridgeConn(a, b)
-	wg.Wait()
 }

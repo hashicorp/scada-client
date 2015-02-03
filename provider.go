@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	"github.com/hashicorp/go-msgpack/codec"
+	"github.com/hashicorp/net-rpc-msgpackrpc"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 // CapabilityProvider is used to provide a given capability
 // when requested remotely. They must return a connection
 // that is bridged or an error.
-type CapabilityProvider func(capability string, meta map[string]string) (io.ReadWriteCloser, error)
+type CapabilityProvider func(capability string, meta map[string]string, conn io.ReadWriteCloser) error
 
 // ProviderService is the service being exposed
 type ProviderService struct {
@@ -254,7 +254,7 @@ func (p *Provider) handleConnection(conn net.Conn) {
 	pe := &providerEndpoint{p: p}
 	rpcServer := rpc.NewServer()
 	rpcServer.RegisterName("Client", pe)
-	rpcCodec := codec.GoRpc.ServerCodec(conn, msgpackHandle)
+	rpcCodec := msgpackrpc.NewCodec(false, false, conn)
 
 	for !p.IsShutdown() {
 		if err := rpcServer.ServeRequest(rpcCodec); err != nil {
@@ -353,11 +353,13 @@ func (p *Provider) handshake(client *Client) (*HandshakeResponse, error) {
 	return resp, nil
 }
 
+type HijackFunc func(io.ReadWriteCloser)
+
 // providerEndpoint is used to implement the Client.* RPC endpoints
 // as part of the provider.
 type providerEndpoint struct {
 	p      *Provider
-	hijack func(net.Conn)
+	hijack HijackFunc
 }
 
 // Hijacked is used to check if the connection has been hijacked
@@ -366,12 +368,12 @@ func (pe *providerEndpoint) hijacked() bool {
 }
 
 // GetHijack returns the hijack function
-func (pe *providerEndpoint) getHijack() func(net.Conn) {
+func (pe *providerEndpoint) getHijack() HijackFunc {
 	return pe.hijack
 }
 
 // Hijack is used to take over the yamux stream for Client.Connect
-func (pe *providerEndpoint) setHijack(cb func(net.Conn)) {
+func (pe *providerEndpoint) setHijack(cb HijackFunc) {
 	pe.hijack = cb
 }
 
@@ -389,17 +391,12 @@ func (pe *providerEndpoint) Connect(args *ConnectRequest, resp *ConnectResponse)
 		return fmt.Errorf("invalid capability")
 	}
 
-	// Setup the capability
-	conn, err := handler(args.Capability, args.Meta)
-	if err != nil || conn == nil {
-		pe.p.logger.Printf("[ERR] scada-client: capability '%s' setup failed: %v",
-			args.Capability, err)
-		return fmt.Errorf("setup failed")
-	}
-
 	// Hijack the connection
-	pe.setHijack(func(a net.Conn) {
-		BridgeConn(conn, a)
+	pe.setHijack(func(a io.ReadWriteCloser) {
+		if err := handler(args.Capability, args.Meta, a); err != nil {
+			pe.p.logger.Printf("[ERR] scada-client: '%s' handler error: %v",
+				args.Capability, err)
+		}
 	})
 	resp.Success = true
 	return nil
@@ -424,22 +421,4 @@ func (pe *providerEndpoint) Disconnect(args *DisconnectRequest, resp *Disconnect
 	}
 	pe.p.clientLock.Unlock()
 	return nil
-}
-
-// BridgeConn is used to bridge two connections together
-// and copy data bidirectionally
-func BridgeConn(a, b net.Conn) {
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		io.Copy(a, b)
-		a.Close()
-	}()
-	go func() {
-		defer wg.Done()
-		io.Copy(b, a)
-		b.Close()
-	}()
-	wg.Wait()
 }
