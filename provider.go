@@ -29,7 +29,7 @@ const (
 // CapabilityProvider is used to provide a given capability
 // when requested remotely. They must return a connection
 // that is bridged or an error.
-type CapabilityProvider func(capability string, meta map[string]string) (net.Conn, error)
+type CapabilityProvider func(capability string, meta map[string]string) (io.ReadWriteCloser, error)
 
 // ProviderService is the service being exposed
 type ProviderService struct {
@@ -265,8 +265,8 @@ func (p *Provider) handleConnection(conn net.Conn) {
 		}
 
 		// Handle potential hijack in Client.Connect
-		if pe.Hijacked() {
-			cb := pe.GetHijack()
+		if pe.hijacked() {
+			cb := pe.getHijack()
 			cb(conn)
 			return
 		}
@@ -361,17 +361,17 @@ type providerEndpoint struct {
 }
 
 // Hijacked is used to check if the connection has been hijacked
-func (pe *providerEndpoint) Hijacked() bool {
+func (pe *providerEndpoint) hijacked() bool {
 	return pe.hijack != nil
 }
 
 // GetHijack returns the hijack function
-func (pe *providerEndpoint) GetHijack() func(net.Conn) {
+func (pe *providerEndpoint) getHijack() func(net.Conn) {
 	return pe.hijack
 }
 
 // Hijack is used to take over the yamux stream for Client.Connect
-func (pe *providerEndpoint) SetHijack(cb func(net.Conn)) {
+func (pe *providerEndpoint) setHijack(cb func(net.Conn)) {
 	pe.hijack = cb
 }
 
@@ -391,11 +391,14 @@ func (pe *providerEndpoint) Connect(args *ConnectRequest, resp *ConnectResponse)
 
 	// Setup the capability
 	conn, err := handler(args.Capability, args.Meta)
-	pe.p.logger.Printf("[ERR] scada-client: capability '%s' setup failed: %v",
-		args.Capability, err)
+	if err != nil || conn == nil {
+		pe.p.logger.Printf("[ERR] scada-client: capability '%s' setup failed: %v",
+			args.Capability, err)
+		return fmt.Errorf("setup failed")
+	}
 
 	// Hijack the connection
-	pe.SetHijack(func(a net.Conn) {
+	pe.setHijack(func(a net.Conn) {
 		BridgeConn(conn, a)
 	})
 	resp.Success = true
