@@ -362,6 +362,42 @@ func TestProvider_Connect(t *testing.T) {
 }
 
 func TestProvider_Disconnect(t *testing.T) {
+	config := testProviderConfig()
+	p, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer p.Shutdown()
+
+	// Setup RPC client
+	a, b := testConn(t)
+	client, _ := yamux.Client(a, yamux.DefaultConfig())
+	server, _ := yamux.Server(b, yamux.DefaultConfig())
+	go p.handleSession(client, make(chan struct{}))
+
+	stream, _ := server.Open()
+	cc := msgpackrpc.NewCodec(false, false, stream)
+
+	// Make the connect rpc
+	args := &DisconnectRequest{
+		NoRetry: true,
+		Backoff: 300 * time.Second,
+	}
+	resp := &DisconnectResponse{}
+	err = msgpackrpc.CallWithCodec(cc, "Client.Disconnect", args, resp)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	p.backoffLock.Lock()
+	defer p.backoffLock.Unlock()
+
+	if p.backoff != 300*time.Second {
+		t.Fatalf("bad: %v", p.backoff)
+	}
+	if !p.noRetry {
+		t.Fatalf("bad")
+	}
 }
 
 func testConn(t *testing.T) (net.Conn, net.Conn) {
