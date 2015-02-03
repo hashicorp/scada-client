@@ -24,6 +24,10 @@ const (
 	// DefaultBackoff is the amount of time we back off if we encounter
 	// and error, and no specific backoff is available.
 	DefaultBackoff = 120 * time.Second
+
+	// DisconnectDelay is how long we delay the disconnect to allow
+	// the RPC to complete.
+	DisconnectDelay = time.Second
 )
 
 // CapabilityProvider is used to provide a given capability
@@ -421,10 +425,12 @@ func (pe *providerEndpoint) Disconnect(args *DisconnectRequest, resp *Disconnect
 	pe.p.sessionLock.Unlock()
 
 	// Force the disconnect
-	pe.p.clientLock.Lock()
-	if pe.p.client != nil {
-		pe.p.client.Close()
-	}
-	pe.p.clientLock.Unlock()
+	time.AfterFunc(DisconnectDelay, func() {
+		pe.p.clientLock.Lock()
+		if pe.p.client != nil {
+			pe.p.client.Close()
+		}
+		pe.p.clientLock.Unlock()
+	})
 	return nil
 }
