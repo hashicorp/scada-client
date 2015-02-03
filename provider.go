@@ -414,6 +414,12 @@ func (pe *providerEndpoint) Disconnect(args *DisconnectRequest, resp *Disconnect
 	pe.p.backoff = args.Backoff
 	pe.p.backoffLock.Unlock()
 
+	// Clear the session information
+	pe.p.sessionLock.Lock()
+	pe.p.sessionID = ""
+	pe.p.sessionAuth = false
+	pe.p.sessionLock.Unlock()
+
 	// Force the disconnect
 	pe.p.clientLock.Lock()
 	if pe.p.client != nil {

@@ -398,6 +398,16 @@ func TestProvider_Disconnect(t *testing.T) {
 	if !p.noRetry {
 		t.Fatalf("bad")
 	}
+
+	p.sessionLock.Lock()
+	defer p.sessionLock.Unlock()
+
+	if p.sessionID != "" {
+		t.Fatalf("Bad: %v", p.sessionID)
+	}
+	if p.sessionAuth {
+		t.Fatalf("Bad: %v", p.sessionAuth)
+	}
 }
 
 func testConn(t *testing.T) (net.Conn, net.Conn) {
