@@ -1,9 +1,11 @@
 package client
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/rpc"
 	"reflect"
@@ -412,6 +414,8 @@ func TestProvider_Disconnect(t *testing.T) {
 
 func TestProvider_Flash(t *testing.T) {
 	config := testProviderConfig()
+	buf := bytes.NewBuffer(nil)
+	config.Logger = log.New(buf, "", 0)
 	p, err := NewProvider(config)
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -430,12 +434,24 @@ func TestProvider_Flash(t *testing.T) {
 	// Make the connect rpc
 	args := &FlashRequest{
 		Severity: "INFO",
-		Message:  "testing",
+		Message:  "TESTING",
 	}
 	resp := &FlashResponse{}
 	err = msgpackrpc.CallWithCodec(cc, "Client.Flash", args, resp)
 	if err != nil {
 		t.Fatalf("err: %v", err)
+	}
+
+	// Wait until we are disconnected
+	start := time.Now()
+	for time.Now().Sub(start) < time.Second {
+		if bytes.Contains(buf.Bytes(), []byte("TESTING")) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("TESTING")) {
+		t.Fatalf("missing: %s", buf)
 	}
 }
 
