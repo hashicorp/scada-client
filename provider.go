@@ -387,6 +387,11 @@ func (pe *providerEndpoint) Connect(args *ConnectRequest, resp *ConnectResponse)
 	pe.p.logger.Printf("[INFO] scada-client: connect requested (capability: %s)",
 		args.Capability)
 
+	// Handle potential flash
+	if args.Severity != "" && args.Message != "" {
+		pe.p.logger.Printf("[%s] scada-client: %s", args.Severity, args.Message)
+	}
+
 	// Look for the handler
 	handler := pe.p.config.Handlers[args.Capability]
 	if handler == nil {
@@ -435,5 +440,14 @@ func (pe *providerEndpoint) Disconnect(args *DisconnectRequest, resp *Disconnect
 		}
 		pe.p.clientLock.Unlock()
 	})
+	return nil
+}
+
+// Flash is invoked by the broker log a message
+func (pe *providerEndpoint) Flash(args *FlashRequest, resp *FlashResponse) error {
+	defer metrics.IncrCounter([]string{"scada", "flash"}, 1)
+	if args.Severity != "" && args.Message != "" {
+		pe.p.logger.Printf("[%s] scada-client: %s", args.Severity, args.Message)
+	}
 	return nil
 }

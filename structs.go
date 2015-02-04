@@ -22,6 +22,9 @@ type HandshakeResponse struct {
 type ConnectRequest struct {
 	Capability string
 	Meta       map[string]string
+
+	Severity string
+	Message  string
 }
 
 type ConnectResponse struct {
@@ -35,4 +38,12 @@ type DisconnectRequest struct {
 }
 
 type DisconnectResponse struct {
+}
+
+type FlashRequest struct {
+	Severity string
+	Message  string
+}
+
+type FlashResponse struct {
 }

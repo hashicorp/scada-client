@@ -410,6 +410,35 @@ func TestProvider_Disconnect(t *testing.T) {
 	}
 }
 
+func TestProvider_Flash(t *testing.T) {
+	config := testProviderConfig()
+	p, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	defer p.Shutdown()
+
+	// Setup RPC client
+	a, b := testConn(t)
+	client, _ := yamux.Client(a, yamux.DefaultConfig())
+	server, _ := yamux.Server(b, yamux.DefaultConfig())
+	go p.handleSession(client, make(chan struct{}))
+
+	stream, _ := server.Open()
+	cc := msgpackrpc.NewCodec(false, false, stream)
+
+	// Make the connect rpc
+	args := &FlashRequest{
+		Severity: "INFO",
+		Message:  "testing",
+	}
+	resp := &FlashResponse{}
+	err = msgpackrpc.CallWithCodec(cc, "Client.Flash", args, resp)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+}
+
 func testConn(t *testing.T) (net.Conn, net.Conn) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
