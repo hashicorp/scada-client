@@ -122,6 +122,9 @@ func validateConfig(config *ProviderConfig) error {
 		return fmt.Errorf("missing resource group")
 	}
 	if config.Token == "" {
+		config.Token = os.Getenv("ATLAS_TOKEN")
+	}
+	if config.Token == "" {
 		return fmt.Errorf("missing token")
 	}
 
