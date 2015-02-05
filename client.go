@@ -15,6 +15,9 @@ const (
 	// clientPreamble is the preamble to send before upgrading
 	// the connection into a SCADA version 1 connection.
 	clientPreamble = "SCADA 1\n"
+
+	// rpcTimeout is how long of a read deadline we provide
+	rpcTimeout = 10 * time.Second
 )
 
 // Client is a SCADA compatible client. This is a bare bones client that
@@ -88,6 +91,7 @@ func (c *Client) RPC(method string, args interface{}, resp interface{}) error {
 		return fmt.Errorf("failed to open stream: %v", err)
 	}
 	defer stream.Close()
+	stream.SetDeadline(time.Now().Add(rpcTimeout))
 
 	// Create the RPC client
 	cc := msgpackrpc.NewCodec(true, true, stream)
