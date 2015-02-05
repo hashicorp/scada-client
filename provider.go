@@ -128,6 +128,9 @@ func validateConfig(config *ProviderConfig) error {
 	// Default the endpoint
 	if config.Endpoint == "" {
 		config.Endpoint = DefaultEndpoint
+		if end := os.Getenv("SCADA_ENDPOINT"); end != "" {
+			config.Endpoint = end
+		}
 	}
 	return nil
 }
