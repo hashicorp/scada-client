@@ -134,7 +134,7 @@ func TestValidate(t *testing.T) {
 	for idx, tc := range tcases {
 		err := validateConfig(tc.inp)
 		if (err == nil) != tc.valid {
-			t.Fatalf("%d err: %v", idx, err)
+			t.Fatalf("%d err: %v %v", idx, err, tc.inp)
 		}
 	}
 }

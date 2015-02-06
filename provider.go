@@ -259,12 +259,17 @@ func (p *Provider) handleSession(list net.Listener, doneCh chan struct{}) {
 
 // handleConnection handles an incoming connection
 func (p *Provider) handleConnection(conn net.Conn) {
-	defer conn.Close()
 	// Create an RPC server to handle inbound
 	pe := &providerEndpoint{p: p}
 	rpcServer := rpc.NewServer()
 	rpcServer.RegisterName("Client", pe)
 	rpcCodec := msgpackrpc.NewCodec(false, false, conn)
+
+	defer func() {
+		if !pe.hijacked() {
+			conn.Close()
+		}
+	}()
 
 	for !p.IsShutdown() {
 		if err := rpcServer.ServeRequest(rpcCodec); err != nil {
