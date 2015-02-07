@@ -64,8 +64,8 @@ type ProviderConfig struct {
 	// Optional TLS configuration, defaults used otherwise
 	TLSConfig *tls.Config
 
-	// Optional logger, otherwise one is created on stderr
-	Logger *log.Logger
+	// LogOutput is to control the log output
+	LogOutput io.Writer
 }
 
 // Provider is a high-level interface to SCADA by which
@@ -145,10 +145,10 @@ func NewProvider(config *ProviderConfig) (*Provider, error) {
 	}
 
 	// Create logger
-	logger := config.Logger
-	if logger == nil {
-		logger = log.New(os.Stderr, "", log.LstdFlags)
+	if config.LogOutput == nil {
+		config.LogOutput = os.Stderr
 	}
+	logger := log.New(config.LogOutput, "", log.LstdFlags)
 
 	p := &Provider{
 		config:     config,
@@ -299,7 +299,13 @@ func (p *Provider) clientSetup() (*Client, error) {
 	p.backoffLock.Unlock()
 
 	// Dial a new connection
-	client, err := DialTLS(p.config.Endpoint, p.config.TLSConfig)
+	opts := Opts{
+		Addr:      p.config.Endpoint,
+		TLS:       true,
+		TLSConfig: p.config.TLSConfig,
+		LogOutput: p.config.LogOutput,
+	}
+	client, err := DialOpts(&opts)
 	if err != nil {
 		p.logger.Printf("[ERR] scada-client: failed to dial: %v", err)
 		return nil, err

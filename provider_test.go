@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/rpc"
 	"reflect"
@@ -415,7 +414,7 @@ func TestProvider_Disconnect(t *testing.T) {
 func TestProvider_Flash(t *testing.T) {
 	config := testProviderConfig()
 	buf := bytes.NewBuffer(nil)
-	config.Logger = log.New(buf, "", 0)
+	config.LogOutput = buf
 	p, err := NewProvider(config)
 	if err != nil {
 		t.Fatalf("err: %v", err)

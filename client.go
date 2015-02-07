@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -20,6 +21,21 @@ const (
 	rpcTimeout = 10 * time.Second
 )
 
+// Opts is used to parameterize a Dial
+type Opts struct {
+	// Addr is the dial address
+	Addr string
+
+	// TLS controls if TLS is used
+	TLS bool
+
+	// TLSConfig or nil for default
+	TLSConfig *tls.Config
+
+	// Modifies the log output
+	LogOutput io.Writer
+}
+
 // Client is a SCADA compatible client. This is a bare bones client that
 // only handles the framing and RPC protocol. Higher-level clients should
 // be prefered.
@@ -33,26 +49,33 @@ type Client struct {
 
 // Dial is used to establish a new connection over TCP
 func Dial(addr string) (*Client, error) {
-	// Dial a connection
-	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
-	if err != nil {
-		return nil, err
-	}
-	return initClient(conn)
+	opts := Opts{Addr: addr, TLS: false}
+	return DialOpts(&opts)
 }
 
 // DialTLS is used to establish a new connection using TLS/TCP
 func DialTLS(addr string, tlsConf *tls.Config) (*Client, error) {
-	// Dial a connection
-	conn, err := tls.Dial("tcp", addr, tlsConf)
+	opts := Opts{Addr: addr, TLS: true, TLSConfig: tlsConf}
+	return DialOpts(&opts)
+}
+
+// DialOpts is a parameterized Dial
+func DialOpts(opts *Opts) (*Client, error) {
+	var conn net.Conn
+	var err error
+	if opts.TLS {
+		conn, err = tls.Dial("tcp", opts.Addr, opts.TLSConfig)
+	} else {
+		conn, err = net.DialTimeout("tcp", opts.Addr, 10*time.Second)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return initClient(conn)
+	return initClient(conn, opts)
 }
 
 // initClient does the common initialization
-func initClient(conn net.Conn) (*Client, error) {
+func initClient(conn net.Conn, opts *Opts) (*Client, error) {
 	// Send the preamble
 	_, err := conn.Write([]byte(clientPreamble))
 	if err != nil {
@@ -60,7 +83,11 @@ func initClient(conn net.Conn) (*Client, error) {
 	}
 
 	// Wrap the connection in yamux for multiplexing
-	client, _ := yamux.Client(conn, yamux.DefaultConfig())
+	ymConf := yamux.DefaultConfig()
+	if opts.LogOutput != nil {
+		ymConf.LogOutput = opts.LogOutput
+	}
+	client, _ := yamux.Client(conn, ymConf)
 
 	// Create the client
 	c := &Client{
