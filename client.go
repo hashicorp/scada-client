@@ -139,3 +139,8 @@ func (c *Client) Open() (net.Conn, error) {
 func (c *Client) Addr() net.Addr {
 	return c.client.LocalAddr()
 }
+
+// NumStreams returns the number of open streams on the client
+func (c *Client) NumStreams() int {
+	return c.client.NumStreams()
+}
