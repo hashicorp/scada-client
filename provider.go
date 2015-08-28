@@ -231,11 +231,14 @@ func (p *Provider) run() {
 		doneCh := make(chan struct{})
 		go p.handleSession(client, doneCh)
 
-		// Wait for sessiont termination or shutdown
+		// Wait for session termination or shutdown
 		select {
 		case <-doneCh:
 			p.wait()
 		case <-p.shutdownCh:
+			p.clientLock.Lock()
+			client.Close()
+			p.clientLock.Unlock()
 			return
 		}
 	}
