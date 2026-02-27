@@ -38,7 +38,7 @@ type Opts struct {
 
 // Client is a SCADA compatible client. This is a bare bones client that
 // only handles the framing and RPC protocol. Higher-level clients should
-// be prefered.
+// be preferred.
 type Client struct {
 	conn   net.Conn
 	client *yamux.Session
